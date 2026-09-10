@@ -1,0 +1,44 @@
+{
+  "packageType" : "remote-ansible-deployment-package",
+  "packageVersion" : "1.0.0",
+  "mode" : "DEMO",
+  "deploymentMode" : "remote-ansible",
+  "supportedRuntimeModes" : [ ],
+  "model" : {
+    "id" : "artemis-generated-feature-model",
+    "version" : "0.1.0+3ef9968d9af6"
+  },
+  "deploymentProfile" : {
+    "id" : "default-artemis-profile",
+    "version" : "2.0.0"
+  },
+  "artemisRuntime" : {
+    "sourceCommit" : "f4428ab20bab3595d4c51a420c2004bf0a6afbe3",
+    "imageRepository" : "ghcr.io/ls1intum/artemis",
+    "imageDigest" : null,
+    "note" : "The package deploys the official Artemis image through the pinned Ansible collection; the deployed tag is set by artemis_version in the generated inventory values."
+  },
+  "database" : {
+    "type" : "postgresql",
+    "mode" : "ansible-managed"
+  },
+  "ciProvider" : {
+    "type" : "integrated-code-lifecycle",
+    "mode" : "inventory-membership"
+  },
+  "technicalSelection" : {
+    "databaseId" : "postgresql",
+    "databaseComposeFile" : "docker/postgres.yml",
+    "databaseDisposition" : "applied",
+    "ciProviderId" : "integrated-code-lifecycle",
+    "springProfileTokens" : [ "localci", "buildagent", "localvc" ],
+    "ciProviderDisposition" : "applied"
+  },
+  "generatedFiles" : [ "README.md", "requirements.yml", "ansible.cfg", "playbook.yml", "inventory/hosts", "inventory/group_vars/artemisremote/main.yml", "inventory/group_vars/artemisremote/secrets.yml", "inventory/group_vars/artemistests_common_config.yml", "inventory/group_vars/artemistests_postgres.yml", "inventory/group_vars/artemistests_local_vc_ci.yml", "inventory/group_vars/artemistests_without_lecture.yml", "inventory/group_vars/artemistests_without_tutorialgroup.yml", "inventory/group_vars/artemistests_without_text.yml", "inventory/group_vars/artemistests_without_modeling.yml", "inventory/group_vars/artemistests_without_fileupload.yml", "inventory/group_vars/artemistests_without_exam.yml", "inventory/group_vars/artemistests_without_plagiarism.yml", "inventory/group_vars/artemistests_without_atlas.yml", "preflight.sh", "metadata/package-manifest.json", "metadata/remote-readiness.json", "metadata/env-references.json", "metadata/selected-features.json" ],
+  "requiredEnvironmentVariables" : [ ],
+  "readiness" : {
+    "localRuntimeReady" : false,
+    "productionReady" : false,
+    "reason" : "Admin-consumable Ansible deployment package: consumable, not deployable. Environment and secret values are environment lookup expressions; run preflight.sh and review metadata/remote-readiness.json before use."
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "selectionValidated" : "pass",
+  "bindingsResolved" : [ {
+    "featureId" : "lecture",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "tutorialgroup",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "course-workflow",
+    "classification" : "no-op",
+    "selected" : true
+  }, {
+    "featureId" : "communication",
+    "classification" : "no-op",
+    "selected" : true
+  }, {
+    "featureId" : "exercise-common",
+    "classification" : "no-op",
+    "selected" : true
+  }, {
+    "featureId" : "programming",
+    "classification" : "no-op",
+    "selected" : true
+  }, {
+    "featureId" : "quiz",
+    "classification" : "no-op",
+    "selected" : true
+  }, {
+    "featureId" : "text",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "modeling",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "file-upload",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "exam",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "plagiarism",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "athena",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "atlas",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "iris",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "hyperion",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "deimos",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "lti",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "theia",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "apollon",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "sharing",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "mysql",
+    "classification" : "bound",
+    "selected" : false
+  }, {
+    "featureId" : "postgresql",
+    "classification" : "bound",
+    "selected" : true
+  }, {
+    "featureId" : "integrated-code-lifecycle",
+    "classification" : "bound",
+    "selected" : true
+  }, {
+    "featureId" : "jenkins",
+    "classification" : "unsupported",
+    "selected" : false
+  }, {
+    "featureId" : "localvc",
+    "classification" : "no-op",
+    "selected" : true
+  } ],
+  "valuesGenerated" : "pass",
+  "requiredEnvironmentVariables" : [ "ARTEMIS_DATABASE_PASSWORD", "ARTEMIS_EMAIL_TEST", "ARTEMIS_INTERNAL_ADMIN_PASSWORD", "ARTEMIS_JHIPSTER_JWT", "ARTEMIS_OPERATOR_ADMIN_NAME", "ARTEMIS_OPERATOR_NAME", "PROXY_SSL_CERTIFICATE_KEY_PATH", "PROXY_SSL_CERTIFICATE_PATH", "SERVER_HOSTNAME", "TESTSERVER_NAME" ],
+  "secretsAsReferences" : "pass",
+  "syntaxValidated" : "pending",
+  "model" : {
+    "id" : "artemis-generated-feature-model",
+    "version" : "0.1.0+3ef9968d9af6"
+  },
+  "bindingCatalog" : {
+    "catalogVersion" : 2,
+    "collectionPin" : "fce6ad19a7ee58dbecc5632d5bb2b3f18f76886e"
+  }
+}

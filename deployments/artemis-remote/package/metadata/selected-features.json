@@ -1,0 +1,30 @@
+{
+  "modelId" : "artemis-generated-feature-model",
+  "modelVersion" : "0.1.0+3ef9968d9af6",
+  "mode" : "DEMO",
+  "selectedFeatures" : [ {
+    "id" : "course-workflow",
+    "name" : "Course Workflow"
+  }, {
+    "id" : "communication",
+    "name" : "Communication"
+  }, {
+    "id" : "exercise-common",
+    "name" : "Common Exercise Infrastructure"
+  }, {
+    "id" : "programming",
+    "name" : "Programming Exercises"
+  }, {
+    "id" : "quiz",
+    "name" : "Quiz Exercises"
+  }, {
+    "id" : "postgresql",
+    "name" : "PostgreSQL"
+  }, {
+    "id" : "integrated-code-lifecycle",
+    "name" : "Integrated Code Lifecycle"
+  }, {
+    "id" : "localvc",
+    "name" : "Local Version Control"
+  } ]
+}

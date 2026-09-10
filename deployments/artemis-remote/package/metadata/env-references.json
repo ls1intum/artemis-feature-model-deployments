@@ -1,0 +1,51 @@
+[ {
+  "envVar" : "TESTSERVER_NAME",
+  "consumer" : "var_testserver_name",
+  "file" : "inventory/group_vars/artemisremote/main.yml",
+  "kind" : "identity"
+}, {
+  "envVar" : "SERVER_HOSTNAME",
+  "consumer" : "var_server_hostname",
+  "file" : "inventory/group_vars/artemisremote/main.yml",
+  "kind" : "identity"
+}, {
+  "envVar" : "ARTEMIS_DATABASE_PASSWORD",
+  "consumer" : "artemis_database_password",
+  "file" : "inventory/group_vars/artemisremote/secrets.yml",
+  "kind" : "secret"
+}, {
+  "envVar" : "ARTEMIS_INTERNAL_ADMIN_PASSWORD",
+  "consumer" : "artemis_internal_admin_password",
+  "file" : "inventory/group_vars/artemisremote/secrets.yml",
+  "kind" : "secret"
+}, {
+  "envVar" : "ARTEMIS_JHIPSTER_JWT",
+  "consumer" : "artemis_jhipster_jwt",
+  "file" : "inventory/group_vars/artemisremote/secrets.yml",
+  "kind" : "secret"
+}, {
+  "envVar" : "ARTEMIS_EMAIL_TEST",
+  "consumer" : "artemis_email",
+  "file" : "inventory/group_vars/artemistests_common_config.yml",
+  "kind" : "identity"
+}, {
+  "envVar" : "ARTEMIS_OPERATOR_NAME",
+  "consumer" : "artemis_operator_name",
+  "file" : "inventory/group_vars/artemistests_common_config.yml",
+  "kind" : "identity"
+}, {
+  "envVar" : "ARTEMIS_OPERATOR_ADMIN_NAME",
+  "consumer" : "artemis_operator_admin_name",
+  "file" : "inventory/group_vars/artemistests_common_config.yml",
+  "kind" : "identity"
+}, {
+  "envVar" : "PROXY_SSL_CERTIFICATE_PATH",
+  "consumer" : "proxy_ssl_certificate_path",
+  "file" : "inventory/group_vars/artemistests_common_config.yml",
+  "kind" : "identity"
+}, {
+  "envVar" : "PROXY_SSL_CERTIFICATE_KEY_PATH",
+  "consumer" : "proxy_ssl_certificate_key_path",
+  "file" : "inventory/group_vars/artemistests_common_config.yml",
+  "kind" : "identity"
+} ]

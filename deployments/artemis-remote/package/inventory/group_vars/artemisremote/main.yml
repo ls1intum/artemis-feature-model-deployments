@@ -1,0 +1,3 @@
+---
+var_testserver_name: "{{ lookup('ansible.builtin.env', 'TESTSERVER_NAME') }}"
+var_server_hostname: "{{ lookup('ansible.builtin.env', 'SERVER_HOSTNAME') }}"
