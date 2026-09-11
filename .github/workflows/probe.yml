@@ -42,7 +42,7 @@ jobs:
             UserKnownHostsFile ~/.ssh/known_hosts
           EOF
       - name: Two-hop login + sudo test
-        run: ssh artemis-vm 'hostname && whoami && sudo -n true && echo SUDO_OK'
+        run: ssh -v artemis-vm 'hostname && whoami && sudo -n true && echo SUDO_OK'
       - name: Report captured host keys (scan mode)
         if: ${{ inputs.mode == 'scan' }}
         run: |
