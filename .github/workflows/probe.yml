@@ -1,0 +1,52 @@
+name: Transport probe
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [scan, strict]
+        default: scan
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: chair-vm
+    steps:
+      - uses: actions/checkout@v6
+      - name: Assemble SSH config
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          install -m 600 /dev/null ~/.ssh/gateway_key
+          printf '%s\n' "${{ secrets.DEPLOYMENT_GATEWAY_SSH_KEY }}" > ~/.ssh/gateway_key
+          install -m 600 /dev/null ~/.ssh/vm_key
+          printf '%s\n' "${{ secrets.VM_SSH_PRIVATE_KEY }}" > ~/.ssh/vm_key
+          if [ "${{ inputs.mode }}" = "strict" ]; then
+            cp environments/chair-vm/known_hosts ~/.ssh/known_hosts
+            CHECK=yes
+          else
+            touch ~/.ssh/known_hosts
+            CHECK=accept-new
+          fi
+          cat > ~/.ssh/config <<EOF
+          Host gateway
+            HostName ${{ vars.DEPLOYMENT_GATEWAY_HOST }}
+            Port ${{ vars.DEPLOYMENT_GATEWAY_PORT }}
+            User ${{ vars.DEPLOYMENT_GATEWAY_USER }}
+            IdentityFile ~/.ssh/gateway_key
+          Host artemis-vm
+            HostName ${{ vars.VM_HOST }}
+            User ${{ vars.VM_USERNAME }}
+            ProxyJump gateway
+            IdentityFile ~/.ssh/vm_key
+          Host *
+            StrictHostKeyChecking $CHECK
+            UserKnownHostsFile ~/.ssh/known_hosts
+          EOF
+      - name: Two-hop login + sudo test
+        run: ssh -v artemis-vm 'hostname && whoami && sudo -n true && echo SUDO_OK'
+      - name: Report captured host keys (scan mode)
+        if: ${{ inputs.mode == 'scan' }}
+        run: |
+          { echo '## Captured host key fingerprints'; echo '```'; ssh-keygen -lf ~/.ssh/known_hosts; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.mode == 'scan' }}
+        with: { name: known_hosts, path: ~/.ssh/known_hosts }
