@@ -48,7 +48,6 @@ jobs:
       AZURE_OPENAI_DEPLOYMENT_NAME: ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
       LTI_OAUTH_SECRET: ${{ secrets.LTI_OAUTH_SECRET }}
       SHARING_APIKEY: ${{ secrets.SHARING_APIKEY }}
-      TLS_CERT_POLICY: ${{ vars.TLS_CERT_POLICY || 'managed' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -126,10 +125,11 @@ jobs:
       - name: Certificate gate
         id: certificate
         run: |
-          remote_args=$(printf '%q ' "$PROXY_SSL_CERTIFICATE_PATH" "$PROXY_SSL_CERTIFICATE_KEY_PATH" "$SERVER_HOSTNAME" "$TLS_CERT_POLICY")
+          # Detect-only: a failed check blocks the run before ansible; the gate never writes to the VM.
+          remote_args=$(printf '%q ' "$PROXY_SSL_CERTIFICATE_PATH" "$PROXY_SSL_CERTIFICATE_KEY_PATH" "$SERVER_HOSTNAME")
           ssh artemis-vm "sudo bash -s -- $remote_args" <<'REMOTE' | tee "$RUNNER_TEMP/certificate-gate.txt"
           set -euo pipefail
-          cert=$1 key=$2 host=$3 policy=$4
+          cert=$1 key=$2 host=$3
 
           # Prints the first failed check and returns 1; silent and 0 when the pair is usable.
           diagnose() {
@@ -147,41 +147,15 @@ jobs:
               || { echo "the certificate SAN list does not contain $host"; return 1; }
           }
 
-          case "$policy" in
-            managed|self-signed) ;;
-            *) echo "::error::certificate gate: unknown TLS_CERT_POLICY '$policy'"; exit 1 ;;
-          esac
-
-          if ! reason=$(diagnose); then
-            if [ "$policy" = managed ]; then
-              echo "::error::certificate gate: $reason"
-              exit 1
-            fi
-            echo "Certificate check failed ($reason); regenerating a self-signed certificate."
-            for path in "$cert" "$key"; do
-              if [ -d "$path" ]; then
-                # Only the empty directory Docker leaves behind for a missing bind-mount source.
-                rmdir "$path" || { echo "::error::certificate gate: $path is a non-empty directory"; exit 1; }
-              fi
-              mkdir -p "$(dirname "$path")"
-            done
-            openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=$host" \
-              -addext "subjectAltName=DNS:$host" -keyout "$key" -out "$cert" 2>/dev/null
-            chmod 600 "$key"
-            chmod 644 "$cert"
-            reason=$(diagnose) || { echo "::error::certificate gate: regenerated certificate is unusable: $reason"; exit 1; }
-            echo "CERTIFICATE_REGENERATED"
-          fi
+          reason=$(diagnose) || { echo "::error::certificate gate: $reason"; exit 1; }
 
           openssl x509 -in "$cert" -noout -fingerprint -sha256 -enddate
           REMOTE
 
-          regenerated=false
-          if grep -qx 'CERTIFICATE_REGENERATED' "$RUNNER_TEMP/certificate-gate.txt"; then regenerated=true; fi
-          echo "regenerated=$regenerated" >> "$GITHUB_OUTPUT"
+          # The gate no longer regenerates certificates, so the nginx recreate step below never runs.
+          echo "regenerated=false" >> "$GITHUB_OUTPUT"
           {
             echo "## TLS certificate"
-            echo "- policy: \`$TLS_CERT_POLICY\`, regenerated: \`$regenerated\`"
             grep -Ei '^(sha256 fingerprint|notAfter)=' "$RUNNER_TEMP/certificate-gate.txt" | sed 's/^/- `/; s/$/`/'
           } >> "$GITHUB_STEP_SUMMARY"
 
