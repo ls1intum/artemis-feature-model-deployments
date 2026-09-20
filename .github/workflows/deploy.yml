@@ -77,12 +77,17 @@ jobs:
           VM_HOST: ${{ vars.VM_HOST }}
           VM_USERNAME: ${{ vars.VM_USERNAME }}
           VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           install -m 600 /dev/null ~/.ssh/gateway_key
           printf '%s\n' "$GATEWAY_SSH_KEY" > ~/.ssh/gateway_key
           install -m 600 /dev/null ~/.ssh/vm_key
           printf '%s\n' "$VM_SSH_PRIVATE_KEY" > ~/.ssh/vm_key
+          if [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::the SSH_KNOWN_HOSTS Environment variable is not set or is empty"
+            exit 1
+          fi
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           cat > ~/.ssh/config <<EOF
           Host gateway
