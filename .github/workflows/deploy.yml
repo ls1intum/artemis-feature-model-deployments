@@ -83,7 +83,7 @@ jobs:
           printf '%s\n' "$GATEWAY_SSH_KEY" > ~/.ssh/gateway_key
           install -m 600 /dev/null ~/.ssh/vm_key
           printf '%s\n' "$VM_SSH_PRIVATE_KEY" > ~/.ssh/vm_key
-          cp environments/chair-vm/known_hosts ~/.ssh/known_hosts
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           cat > ~/.ssh/config <<EOF
           Host gateway
             HostName $GATEWAY_HOST
