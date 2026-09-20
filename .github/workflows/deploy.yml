@@ -1,0 +1,299 @@
+name: Deploy package
+
+# Applies one published remote-ansible package to the chair VM through the org jump host.
+# Dispatch it on the `deployment` branch; the package is consumed exactly as published.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Published target directory under deployments/
+        type: string
+        default: artemis-remote
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # bash -eo pipefail, so a failing command in front of `tee` fails the step
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: chair-vm
+    timeout-minutes: 60
+    env:
+      # Superset of every name a package may reference. Absent names expand to empty strings;
+      # the package's own preflight.sh decides which of them must be non-empty.
+      TESTSERVER_NAME: ${{ vars.TESTSERVER_NAME }}
+      SERVER_HOSTNAME: ${{ vars.SERVER_HOSTNAME }}
+      ARTEMIS_EMAIL_TEST: ${{ vars.ARTEMIS_EMAIL_TEST }}
+      ARTEMIS_OPERATOR_NAME: ${{ vars.ARTEMIS_OPERATOR_NAME }}
+      ARTEMIS_OPERATOR_ADMIN_NAME: ${{ vars.ARTEMIS_OPERATOR_ADMIN_NAME }}
+      PROXY_SSL_CERTIFICATE_PATH: ${{ vars.PROXY_SSL_CERTIFICATE_PATH }}
+      PROXY_SSL_CERTIFICATE_KEY_PATH: ${{ vars.PROXY_SSL_CERTIFICATE_KEY_PATH }}
+      ARTEMIS_DATABASE_PASSWORD: ${{ secrets.ARTEMIS_DATABASE_PASSWORD }}
+      ARTEMIS_INTERNAL_ADMIN_PASSWORD: ${{ secrets.ARTEMIS_INTERNAL_ADMIN_PASSWORD }}
+      ARTEMIS_JHIPSTER_JWT: ${{ secrets.ARTEMIS_JHIPSTER_JWT }}
+      IRIS_URL: ${{ secrets.IRIS_URL }}
+      IRIS_SECRET: ${{ secrets.IRIS_SECRET }}
+      ATHENA_URL: ${{ secrets.ATHENA_URL }}
+      ATHENA_SECRET: ${{ secrets.ATHENA_SECRET }}
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_DEPLOYMENT_NAME: ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
+      LTI_OAUTH_SECRET: ${{ secrets.LTI_OAUTH_SECRET }}
+      SHARING_APIKEY: ${{ secrets.SHARING_APIKEY }}
+      TLS_CERT_POLICY: ${{ vars.TLS_CERT_POLICY || 'managed' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve target
+        id: target
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          if ! [[ "$TARGET" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+            echo "::error::invalid target name '$TARGET'"
+            exit 1
+          fi
+          package_dir="deployments/$TARGET/package"
+          if [ ! -f "$package_dir/playbook.yml" ]; then
+            echo "::error::no published package at $package_dir on ref $GITHUB_REF_NAME (dispatch on the deployment branch)"
+            exit 1
+          fi
+          echo "name=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "package_dir=$package_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble SSH config
+        env:
+          GATEWAY_HOST: ${{ vars.DEPLOYMENT_GATEWAY_HOST }}
+          GATEWAY_PORT: ${{ vars.DEPLOYMENT_GATEWAY_PORT }}
+          GATEWAY_USER: ${{ vars.DEPLOYMENT_GATEWAY_USER }}
+          GATEWAY_SSH_KEY: ${{ secrets.DEPLOYMENT_GATEWAY_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USERNAME: ${{ vars.VM_USERNAME }}
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          install -m 600 /dev/null ~/.ssh/gateway_key
+          printf '%s\n' "$GATEWAY_SSH_KEY" > ~/.ssh/gateway_key
+          install -m 600 /dev/null ~/.ssh/vm_key
+          printf '%s\n' "$VM_SSH_PRIVATE_KEY" > ~/.ssh/vm_key
+          cp environments/chair-vm/known_hosts ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host gateway
+            HostName $GATEWAY_HOST
+            Port $GATEWAY_PORT
+            User $GATEWAY_USER
+            IdentityFile ~/.ssh/gateway_key
+          Host artemis-vm
+            HostName $VM_HOST
+            User $VM_USERNAME
+            ProxyJump gateway
+            IdentityFile ~/.ssh/vm_key
+          Host *
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ServerAliveInterval 30
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install the control-node toolchain
+        run: |
+          pip install -r requirements.txt
+          echo "ANSIBLE_COLLECTIONS_PATH=$RUNNER_TEMP/collections" >> "$GITHUB_ENV"
+
+      # preflight.sh requires the pinned collection, so it is installed first; neither step contacts the VM.
+      - name: Install the pinned collections
+        working-directory: ${{ steps.target.outputs.package_dir }}
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Preflight
+        working-directory: ${{ steps.target.outputs.package_dir }}
+        run: bash ./preflight.sh
+
+      - name: Certificate gate
+        id: certificate
+        run: |
+          remote_args=$(printf '%q ' "$PROXY_SSL_CERTIFICATE_PATH" "$PROXY_SSL_CERTIFICATE_KEY_PATH" "$SERVER_HOSTNAME" "$TLS_CERT_POLICY")
+          ssh artemis-vm "sudo bash -s -- $remote_args" <<'REMOTE' | tee "$RUNNER_TEMP/certificate-gate.txt"
+          set -euo pipefail
+          cert=$1 key=$2 host=$3 policy=$4
+
+          # Prints the first failed check and returns 1; silent and 0 when the pair is usable.
+          diagnose() {
+            local path
+            for path in "$cert" "$key"; do
+              [ -f "$path" ] || { echo "$path is not a regular file"; return 1; }
+            done
+            openssl pkey -in "$key" -noout 2>/dev/null || { echo "the private key does not parse"; return 1; }
+            openssl x509 -in "$cert" -noout 2>/dev/null || { echo "the certificate does not parse"; return 1; }
+            openssl x509 -in "$cert" -noout -checkend 2592000 >/dev/null || { echo "the certificate expires within 30 days"; return 1; }
+            [ "$(openssl x509 -in "$cert" -noout -pubkey)" = "$(openssl pkey -in "$key" -pubout)" ] \
+              || { echo "the private key does not match the certificate"; return 1; }
+            { openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null | grep -q 'DNS:' \
+              && openssl x509 -in "$cert" -noout -checkhost "$host" | grep -q 'does match'; } \
+              || { echo "the certificate SAN list does not contain $host"; return 1; }
+          }
+
+          case "$policy" in
+            managed|self-signed) ;;
+            *) echo "::error::certificate gate: unknown TLS_CERT_POLICY '$policy'"; exit 1 ;;
+          esac
+
+          if ! reason=$(diagnose); then
+            if [ "$policy" = managed ]; then
+              echo "::error::certificate gate: $reason"
+              exit 1
+            fi
+            echo "Certificate check failed ($reason); regenerating a self-signed certificate."
+            for path in "$cert" "$key"; do
+              if [ -d "$path" ]; then
+                # Only the empty directory Docker leaves behind for a missing bind-mount source.
+                rmdir "$path" || { echo "::error::certificate gate: $path is a non-empty directory"; exit 1; }
+              fi
+              mkdir -p "$(dirname "$path")"
+            done
+            openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=$host" \
+              -addext "subjectAltName=DNS:$host" -keyout "$key" -out "$cert" 2>/dev/null
+            chmod 600 "$key"
+            chmod 644 "$cert"
+            reason=$(diagnose) || { echo "::error::certificate gate: regenerated certificate is unusable: $reason"; exit 1; }
+            echo "CERTIFICATE_REGENERATED"
+          fi
+
+          openssl x509 -in "$cert" -noout -fingerprint -sha256 -enddate
+          REMOTE
+
+          regenerated=false
+          if grep -qx 'CERTIFICATE_REGENERATED' "$RUNNER_TEMP/certificate-gate.txt"; then regenerated=true; fi
+          echo "regenerated=$regenerated" >> "$GITHUB_OUTPUT"
+          {
+            echo "## TLS certificate"
+            echo "- policy: \`$TLS_CERT_POLICY\`, regenerated: \`$regenerated\`"
+            grep -Ei '^(sha256 fingerprint|notAfter)=' "$RUNNER_TEMP/certificate-gate.txt" | sed 's/^/- `/; s/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assert the play matches a host
+        working-directory: ${{ steps.target.outputs.package_dir }}
+        run: |
+          graph=$(ansible-inventory -i inventory/hosts -i "$GITHUB_WORKSPACE/environments/chair-vm/hosts" --graph artemistests)
+          echo "$graph"
+          if ! grep -Eq -- '--[^@]' <<<"$graph"; then
+            echo "::error::no host in group artemistests; the group in environments/chair-vm/hosts must equal the package's target group"
+            exit 1
+          fi
+
+      - name: Run the playbook
+        working-directory: ${{ steps.target.outputs.package_dir }}
+        run: |
+          ansible-playbook -i inventory/hosts -i "$GITHUB_WORKSPACE/environments/chair-vm/hosts" playbook.yml 2>&1 \
+            | tee "$RUNNER_TEMP/ansible-playbook.log"
+
+      - name: Mask secret values in the run log
+        if: ${{ always() }}
+        run: |
+          [ -f "$RUNNER_TEMP/ansible-playbook.log" ] || exit 0
+          python3 - "$RUNNER_TEMP/ansible-playbook.log" <<'PY'
+          import os, sys
+          names = """ARTEMIS_DATABASE_PASSWORD ARTEMIS_INTERNAL_ADMIN_PASSWORD ARTEMIS_JHIPSTER_JWT IRIS_URL IRIS_SECRET
+          ATHENA_URL ATHENA_SECRET AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_DEPLOYMENT_NAME
+          LTI_OAUTH_SECRET SHARING_APIKEY""".split()
+          path = sys.argv[1]
+          with open(path, encoding="utf-8", errors="replace") as log:
+              text = log.read()
+          for name in names:
+              value = os.environ.get(name, "")
+              if value:
+                  text = text.replace(value, "***")
+          with open(path, "w", encoding="utf-8") as log:
+              log.write(text)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: ansible-playbook-log
+          path: ${{ runner.temp }}/ansible-playbook.log
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Recreate nginx after certificate regeneration
+        if: ${{ steps.certificate.outputs.regenerated == 'true' }}
+        run: ssh artemis-vm 'sudo /opt/artemis/artemis-docker.sh run up -d --force-recreate nginx'
+
+      - name: Health gate
+        working-directory: ${{ steps.target.outputs.package_dir }}
+        run: |
+          profiles=$(jq -r '.technicalSelection.springProfileTokens | join(",")' metadata/package-manifest.json)
+          case "$(jq -r '.database.type' metadata/package-manifest.json)" in
+            postgresql) database_container=artemis-postgres ;;
+            mysql) database_container=artemis-mysql ;;
+            *) echo "::error::health gate: unknown database type in the package manifest"; exit 1 ;;
+          esac
+          off_modules=""
+          for file in inventory/group_vars/artemistests_without_*.yml; do
+            [ -e "$file" ] || continue
+            key=${file##*/artemistests_without_}
+            off_modules="$off_modules ${key%.yml}"
+          done
+          off_modules=${off_modules# }
+
+          remote_args=$(printf '%q ' "$profiles" "$off_modules" "$database_container")
+          ssh artemis-vm "sudo bash -s -- $remote_args" <<'REMOTE'
+          set -uo pipefail
+          profiles=$1 off_modules=$2 database_container=$3
+          env_file=/opt/artemis/artemis.env
+          fail() { echo "::error::health gate: $1"; exit 1; }
+
+          ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec artemis-app wget -q -t1 -T5 -O - http://localhost:8080/management/health/readiness 2>/dev/null \
+                | grep -q '"status":"UP"'; then
+              ready=true
+              break
+            fi
+            echo "readiness: not UP yet ($attempt/60)"
+            sleep 15
+          done
+          [ "$ready" = true ] || fail "readiness did not report UP within 15 minutes"
+          echo "readiness: UP"
+
+          active=$(grep -m1 '^SPRING_PROFILES_ACTIVE' "$env_file" | sed -E "s/^SPRING_PROFILES_ACTIVE[:=]//; s/[ '\"]//g")
+          for profile in ${profiles//,/ }; do
+            case ",$active," in
+              *",$profile,"*) ;;
+              *) fail "profile '$profile' is missing from SPRING_PROFILES_ACTIVE ($active)" ;;
+            esac
+          done
+          echo "profiles: $active"
+
+          for key in $off_modules; do
+            switch="ARTEMIS_$(tr '[:lower:]' '[:upper:]' <<<"$key")_ENABLED"
+            grep -qi "^$switch='false'" "$env_file" || fail "$switch='false' is missing from $env_file"
+          done
+          echo "switched-off modules: ${off_modules:-none}"
+
+          [ "$(docker inspect -f '{{.State.Running}}' "$database_container" 2>/dev/null)" = true ] \
+            || fail "database container $database_container is not running"
+          echo "database: $database_container running"
+          REMOTE
+
+          {
+            echo "## Deployment healthy"
+            echo "- target: \`${{ steps.target.outputs.name }}\` at \`$GITHUB_SHA\`"
+            echo "- profiles verified: \`$profiles\`"
+            echo "- switched-off modules verified: \`${off_modules:-none}\`"
+            echo "- database container: \`$database_container\`"
+          } >> "$GITHUB_STEP_SUMMARY"
