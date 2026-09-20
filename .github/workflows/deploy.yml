@@ -1,8 +1,12 @@
 name: Deploy package
 
 # Applies one published remote-ansible package to the chair VM through the org jump host.
-# Dispatch it on the `deployment` branch; the package is consumed exactly as published.
+# Runs for every push to `deployment` that changes a published package; dispatch it on the
+# `deployment` branch to re-apply an unchanged package. The package is consumed exactly as published.
 on:
+  push:
+    branches: [deployment]
+    paths: ['deployments/**']
   workflow_dispatch:
     inputs:
       target:
@@ -50,12 +54,28 @@ jobs:
       SHARING_APIKEY: ${{ secrets.SHARING_APIKEY }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # the push case diffs against the previous head of the branch
 
       - name: Resolve target
         id: target
         env:
-          TARGET: ${{ inputs.target }}
+          TARGET_INPUT: ${{ inputs.target }}
+          BEFORE: ${{ github.event.before }}
         run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            TARGET=$TARGET_INPUT
+          else
+            # A push names no target: it is the single deployments/<target>/ the push changed.
+            base="$GITHUB_SHA^"
+            if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base=$BEFORE; fi
+            changed=$(git diff --name-only "$base" "$GITHUB_SHA" -- deployments/ | cut -d/ -f2 | sort -u)
+            if [ "$(grep -c . <<<"$changed")" -ne 1 ]; then
+              echo "::error::expected exactly one changed target under deployments/, found: $(tr '\n' ' ' <<<"$changed")"
+              exit 1
+            fi
+            TARGET=$changed
+          fi
           if ! [[ "$TARGET" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
             echo "::error::invalid target name '$TARGET'"
             exit 1
