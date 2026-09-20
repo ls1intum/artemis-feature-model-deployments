@@ -2,7 +2,7 @@
 collections:
   - name: https://github.com/JTNing/artemis-ansible-collection.git
     type: git
-    version: fce6ad19a7ee58dbecc5632d5bb2b3f18f76886e
+    version: 13e50a20fea641a5a792e42541952a37cd7f1239
   # Collections the artemis and legal roles use but cannot declare as collection dependencies.
   - name: ansible.posix
   - name: community.crypto
