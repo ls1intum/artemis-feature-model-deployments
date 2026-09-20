@@ -1,0 +1,2 @@
+[artemisremote]
+chair-vm ansible_host=artemis-vm
