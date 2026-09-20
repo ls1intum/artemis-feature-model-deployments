@@ -1,7 +1,7 @@
 # Artemis Remote Deployment Package (Ansible)
 
 Generated from feature model `artemis-generated-feature-model` version `0.1.0+3ef9968d9af6` and deployment context `default-artemis-profile`, with Ansible binding
-catalog v2 curated against collection commit `fce6ad19a7ee58dbecc5632d5bb2b3f18f76886e`.
+catalog v4 curated against collection commit `13e50a20fea641a5a792e42541952a37cd7f1239`.
 
 This package is **admin-consumable, not deployable**: it contains the complete values and
 orchestration for deploying the selected Artemis variant with the pinned
