@@ -6,7 +6,7 @@
   "supportedRuntimeModes" : [ ],
   "model" : {
     "id" : "artemis-generated-feature-model",
-    "version" : "0.1.0+3ef9968d9af6"
+    "version" : "0.1.0+6d7f286184ec"
   },
   "deploymentProfile" : {
     "id" : "default-artemis-profile",
@@ -33,7 +33,7 @@
     "springProfileTokens" : [ "localci", "buildagent", "localvc" ],
     "ciProviderDisposition" : "applied"
   },
-  "generatedFiles" : [ "README.md", "requirements.yml", "ansible.cfg", "playbook.yml", "inventory/hosts", "inventory/group_vars/artemisremote/main.yml", "inventory/group_vars/artemisremote/secrets.yml", "inventory/group_vars/artemistests_common_config.yml", "inventory/group_vars/artemistests_postgres.yml", "inventory/group_vars/artemistests_local_vc_ci.yml", "inventory/group_vars/artemistests_without_lecture.yml", "inventory/group_vars/artemistests_without_tutorialgroup.yml", "inventory/group_vars/artemistests_without_text.yml", "inventory/group_vars/artemistests_without_modeling.yml", "inventory/group_vars/artemistests_without_fileupload.yml", "inventory/group_vars/artemistests_without_exam.yml", "inventory/group_vars/artemistests_without_plagiarism.yml", "inventory/group_vars/artemistests_without_atlas.yml", "preflight.sh", "metadata/package-manifest.json", "metadata/remote-readiness.json", "metadata/env-references.json", "metadata/selected-features.json" ],
+  "generatedFiles" : [ "README.md", "requirements.yml", "ansible.cfg", "playbook.yml", "inventory/hosts", "inventory/group_vars/artemisremote/main.yml", "inventory/group_vars/artemisremote/secrets.yml", "inventory/group_vars/artemistests_common_config.yml", "inventory/group_vars/artemistests_postgres.yml", "inventory/group_vars/artemistests_local_vc_ci.yml", "inventory/group_vars/artemistests_without_tutorialgroup.yml", "inventory/group_vars/artemistests_without_text.yml", "inventory/group_vars/artemistests_without_modeling.yml", "inventory/group_vars/artemistests_without_fileupload.yml", "inventory/group_vars/artemistests_without_exam.yml", "inventory/group_vars/artemistests_without_plagiarism.yml", "inventory/group_vars/artemistests_without_atlas.yml", "preflight.sh", "metadata/package-manifest.json", "metadata/remote-readiness.json", "metadata/env-references.json", "metadata/selected-features.json" ],
   "requiredEnvironmentVariables" : [ ],
   "readiness" : {
     "localRuntimeReady" : false,

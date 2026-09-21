@@ -1,8 +1,11 @@
 {
   "modelId" : "artemis-generated-feature-model",
-  "modelVersion" : "0.1.0+3ef9968d9af6",
+  "modelVersion" : "0.1.0+6d7f286184ec",
   "mode" : "DEMO",
   "selectedFeatures" : [ {
+    "id" : "lecture",
+    "name" : "Lectures"
+  }, {
     "id" : "course-workflow",
     "name" : "Course Workflow"
   }, {
