@@ -12,9 +12,6 @@ artemisremote
 [artemistests_local_vc_ci:children]
 artemisremote
 
-[artemistests_without_lecture:children]
-artemisremote
-
 [artemistests_without_tutorialgroup:children]
 artemisremote
 
