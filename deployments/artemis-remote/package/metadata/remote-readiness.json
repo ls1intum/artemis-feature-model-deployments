@@ -3,7 +3,7 @@
   "bindingsResolved" : [ {
     "featureId" : "lecture",
     "classification" : "bound",
-    "selected" : false
+    "selected" : true
   }, {
     "featureId" : "tutorialgroup",
     "classification" : "bound",
