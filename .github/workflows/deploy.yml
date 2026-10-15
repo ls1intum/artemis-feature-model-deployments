@@ -1,8 +1,9 @@
 name: Deploy package
 
-# Applies one published remote-ansible package to the chair VM through the org jump host.
-# Runs for every push to `deployment` that changes a published package; dispatch it on the
-# `deployment` branch to re-apply an unchanged package. The package is consumed exactly as published.
+# Applies one published remote-ansible package to the VM of its target. Runs for every push to `deployment` that
+# changes a published package; dispatch it on the `deployment` branch to re-apply an unchanged package. The package is
+# consumed exactly as published. Each target deploys inside the GitHub Environment of the same name, which holds the
+# connection values and the values the package lists in metadata/env-references.json.
 on:
   push:
     branches: [deployment]
@@ -10,123 +11,70 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: Published target directory under deployments/
+        description: Published target directory under deployments/, equal to its GitHub Environment
         type: string
-        default: artemis-remote
+        required: true
 
 permissions:
   contents: read
-
-concurrency:
-  group: deploy-${{ github.ref_name }}
-  cancel-in-progress: false
 
 defaults:
   run:
     shell: bash # bash -eo pipefail, so a failing command in front of `tee` fails the step
 
 jobs:
-  deploy:
+  resolve:
     runs-on: ubuntu-latest
-    environment: chair-vm
-    timeout-minutes: 60
-    env:
-      # Superset of every name a package may reference. Absent names expand to empty strings;
-      # the package's own preflight.sh decides which of them must be non-empty.
-      TESTSERVER_NAME: ${{ vars.TESTSERVER_NAME }}
-      SERVER_HOSTNAME: ${{ vars.SERVER_HOSTNAME }}
-      ARTEMIS_EMAIL_TEST: ${{ vars.ARTEMIS_EMAIL_TEST }}
-      ARTEMIS_OPERATOR_NAME: ${{ vars.ARTEMIS_OPERATOR_NAME }}
-      ARTEMIS_OPERATOR_ADMIN_NAME: ${{ vars.ARTEMIS_OPERATOR_ADMIN_NAME }}
-      PROXY_SSL_CERTIFICATE_PATH: ${{ vars.PROXY_SSL_CERTIFICATE_PATH }}
-      PROXY_SSL_CERTIFICATE_KEY_PATH: ${{ vars.PROXY_SSL_CERTIFICATE_KEY_PATH }}
-      ARTEMIS_DATABASE_PASSWORD: ${{ secrets.ARTEMIS_DATABASE_PASSWORD }}
-      ARTEMIS_INTERNAL_ADMIN_PASSWORD: ${{ secrets.ARTEMIS_INTERNAL_ADMIN_PASSWORD }}
-      ARTEMIS_JHIPSTER_JWT: ${{ secrets.ARTEMIS_JHIPSTER_JWT }}
-      IRIS_URL: ${{ secrets.IRIS_URL }}
-      IRIS_SECRET: ${{ secrets.IRIS_SECRET }}
-      ATHENA_URL: ${{ secrets.ATHENA_URL }}
-      ATHENA_SECRET: ${{ secrets.ATHENA_SECRET }}
-      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
-      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-      AZURE_OPENAI_DEPLOYMENT_NAME: ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
-      LTI_OAUTH_SECRET: ${{ secrets.LTI_OAUTH_SECRET }}
-      SHARING_APIKEY: ${{ secrets.SHARING_APIKEY }}
+    outputs:
+      target: ${{ steps.target.outputs.target }}
+      package_dir: ${{ steps.target.outputs.package_dir }}
+      deploy: ${{ steps.target.outputs.deploy }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # the push case diffs against the previous head of the branch
 
-      - name: Resolve target
+      - name: Resolve target and check the package contract
         id: target
         env:
           TARGET_INPUT: ${{ inputs.target }}
           BEFORE: ${{ github.event.before }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            TARGET=$TARGET_INPUT
-          else
-            # A push names no target: it is the single deployments/<target>/ the push changed.
-            base="$GITHUB_SHA^"
-            if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base=$BEFORE; fi
-            changed=$(git diff --name-only "$base" "$GITHUB_SHA" -- deployments/ | cut -d/ -f2 | sort -u)
-            if [ "$(grep -c . <<<"$changed")" -ne 1 ]; then
-              echo "::error::expected exactly one changed target under deployments/, found: $(tr '\n' ' ' <<<"$changed")"
-              exit 1
-            fi
-            TARGET=$changed
-          fi
-          if ! [[ "$TARGET" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
-            echo "::error::invalid target name '$TARGET'"
-            exit 1
-          fi
-          package_dir="deployments/$TARGET/package"
-          if [ ! -f "$package_dir/playbook.yml" ]; then
-            echo "::error::no published package at $package_dir on ref $GITHUB_REF_NAME (dispatch on the deployment branch)"
-            exit 1
-          fi
-          echo "name=$TARGET" >> "$GITHUB_OUTPUT"
-          echo "package_dir=$package_dir" >> "$GITHUB_OUTPUT"
+        run: bash scripts/resolve-target.sh
 
-      - name: Assemble SSH config
+  deploy:
+    needs: resolve
+    if: ${{ needs.resolve.outputs.deploy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve.outputs.target }}
+    concurrency:
+      group: deploy-${{ needs.resolve.outputs.target }}
+      cancel-in-progress: false
+    timeout-minutes: 60
+    env:
+      TARGET: ${{ needs.resolve.outputs.target }}
+      PACKAGE_DIR: ${{ needs.resolve.outputs.package_dir }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Export the package environment
         env:
-          GATEWAY_HOST: ${{ vars.DEPLOYMENT_GATEWAY_HOST }}
-          GATEWAY_PORT: ${{ vars.DEPLOYMENT_GATEWAY_PORT }}
-          GATEWAY_USER: ${{ vars.DEPLOYMENT_GATEWAY_USER }}
-          GATEWAY_SSH_KEY: ${{ secrets.DEPLOYMENT_GATEWAY_SSH_KEY }}
-          VM_HOST: ${{ vars.VM_HOST }}
-          VM_USERNAME: ${{ vars.VM_USERNAME }}
-          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
-          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
-        run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          install -m 600 /dev/null ~/.ssh/gateway_key
-          printf '%s\n' "$GATEWAY_SSH_KEY" > ~/.ssh/gateway_key
-          install -m 600 /dev/null ~/.ssh/vm_key
-          printf '%s\n' "$VM_SSH_PRIVATE_KEY" > ~/.ssh/vm_key
-          if [ -z "$SSH_KNOWN_HOSTS" ]; then
-            echo "::error::the SSH_KNOWN_HOSTS Environment variable is not set or is empty"
-            exit 1
-          fi
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          cat > ~/.ssh/config <<EOF
-          Host gateway
-            HostName $GATEWAY_HOST
-            Port $GATEWAY_PORT
-            User $GATEWAY_USER
-            IdentityFile ~/.ssh/gateway_key
-          Host artemis-vm
-            HostName $VM_HOST
-            User $VM_USERNAME
-            ProxyJump gateway
-            IdentityFile ~/.ssh/vm_key
-          Host *
-            IdentitiesOnly yes
-            StrictHostKeyChecking yes
-            UserKnownHostsFile ~/.ssh/known_hosts
-            ServerAliveInterval 30
-          EOF
-          chmod 600 ~/.ssh/config
+          VARS_JSON: ${{ toJSON(vars) }}
+          # Every secret a package can reference, by name. GitHub holds runs that serialize the whole secrets
+          # context, so the list is explicit; the resolve job refuses a package that needs a name missing here.
+          PACKAGE_SECRET_ARTEMIS_DATABASE_PASSWORD: ${{ secrets.ARTEMIS_DATABASE_PASSWORD }}
+          PACKAGE_SECRET_ARTEMIS_INTERNAL_ADMIN_PASSWORD: ${{ secrets.ARTEMIS_INTERNAL_ADMIN_PASSWORD }}
+          PACKAGE_SECRET_ARTEMIS_JHIPSTER_JWT: ${{ secrets.ARTEMIS_JHIPSTER_JWT }}
+          PACKAGE_SECRET_IRIS_URL: ${{ secrets.IRIS_URL }}
+          PACKAGE_SECRET_IRIS_SECRET: ${{ secrets.IRIS_SECRET }}
+          PACKAGE_SECRET_ATHENA_URL: ${{ secrets.ATHENA_URL }}
+          PACKAGE_SECRET_ATHENA_SECRET: ${{ secrets.ATHENA_SECRET }}
+          PACKAGE_SECRET_AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          PACKAGE_SECRET_AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          PACKAGE_SECRET_AZURE_OPENAI_DEPLOYMENT_NAME: ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
+          PACKAGE_SECRET_DEIMOS_API_KEY: ${{ secrets.DEIMOS_API_KEY }}
+          PACKAGE_SECRET_LTI_OAUTH_SECRET: ${{ secrets.LTI_OAUTH_SECRET }}
+          PACKAGE_SECRET_SHARING_APIKEY: ${{ secrets.SHARING_APIKEY }}
+        run: python3 scripts/export-environment.py "$PACKAGE_DIR"
 
       - uses: actions/setup-python@v6
         with:
@@ -138,17 +86,45 @@ jobs:
           pip install -r requirements.txt
           echo "ANSIBLE_COLLECTIONS_PATH=$RUNNER_TEMP/collections" >> "$GITHUB_ENV"
 
-      # preflight.sh requires the pinned collection, so it is installed first; neither step contacts the VM.
+      # preflight.sh requires the pinned collection, so it is installed first. Nothing before the certificate gate
+      # contacts the VM, so missing values are reported before any connection is attempted.
       - name: Install the pinned collections
-        working-directory: ${{ steps.target.outputs.package_dir }}
+        working-directory: ${{ env.PACKAGE_DIR }}
         run: ansible-galaxy collection install -r requirements.yml
 
       - name: Preflight
-        working-directory: ${{ steps.target.outputs.package_dir }}
+        id: preflight
+        working-directory: ${{ env.PACKAGE_DIR }}
         run: bash ./preflight.sh
 
+      - name: Assemble SSH config
+        id: ssh
+        env:
+          GATEWAY_HOST: ${{ vars.DEPLOYMENT_GATEWAY_HOST }}
+          GATEWAY_PORT: ${{ vars.DEPLOYMENT_GATEWAY_PORT }}
+          GATEWAY_USER: ${{ vars.DEPLOYMENT_GATEWAY_USER }}
+          GATEWAY_SSH_KEY: ${{ secrets.DEPLOYMENT_GATEWAY_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USERNAME: ${{ vars.VM_USERNAME }}
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+        run: bash scripts/ssh-config.sh
+
+      - name: Report missing values
+        if: ${{ failure() && (steps.preflight.outcome == 'failure' || steps.ssh.outcome == 'failure') }}
+        env:
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USERNAME: ${{ vars.VM_USERNAME }}
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+          DEPLOYMENT_GATEWAY_HOST: ${{ vars.DEPLOYMENT_GATEWAY_HOST }}
+          DEPLOYMENT_GATEWAY_SSH_KEY: ${{ secrets.DEPLOYMENT_GATEWAY_SSH_KEY }}
+        run: python3 scripts/missing-variables-summary.py "$PACKAGE_DIR" "$TARGET"
+
+      - name: Write the connection inventory
+        run: bash scripts/connection-inventory.sh "$PACKAGE_DIR" "$TARGET" "$RUNNER_TEMP/connection-hosts"
+
       - name: Certificate gate
-        id: certificate
         run: |
           # Detect-only: a failed check blocks the run before ansible; the gate never writes to the VM.
           remote_args=$(printf '%q ' "$PROXY_SSL_CERTIFICATE_PATH" "$PROXY_SSL_CERTIFICATE_KEY_PATH" "$SERVER_HOSTNAME")
@@ -177,46 +153,43 @@ jobs:
           openssl x509 -in "$cert" -noout -fingerprint -sha256 -enddate
           REMOTE
 
-          # The gate no longer regenerates certificates, so the nginx recreate step below never runs.
-          echo "regenerated=false" >> "$GITHUB_OUTPUT"
           {
             echo "## TLS certificate"
             grep -Ei '^(sha256 fingerprint|notAfter)=' "$RUNNER_TEMP/certificate-gate.txt" | sed 's/^/- `/; s/$/`/'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Assert the play matches a host
-        working-directory: ${{ steps.target.outputs.package_dir }}
+        working-directory: ${{ env.PACKAGE_DIR }}
         run: |
-          graph=$(ansible-inventory -i inventory/hosts -i "$GITHUB_WORKSPACE/environments/chair-vm/hosts" --graph artemistests)
+          graph=$(ansible-inventory -i inventory/hosts -i "$RUNNER_TEMP/connection-hosts" --graph artemistests)
           echo "$graph"
           if ! grep -Eq -- '--[^@]' <<<"$graph"; then
-            echo "::error::no host in group artemistests; the group in environments/chair-vm/hosts must equal the package's target group"
+            echo "::error::no host in group artemistests; the connection inventory must use the package's target group"
             exit 1
           fi
 
       - name: Run the playbook
-        working-directory: ${{ steps.target.outputs.package_dir }}
+        working-directory: ${{ env.PACKAGE_DIR }}
         run: |
-          ansible-playbook -i inventory/hosts -i "$GITHUB_WORKSPACE/environments/chair-vm/hosts" playbook.yml 2>&1 \
+          ansible-playbook -i inventory/hosts -i "$RUNNER_TEMP/connection-hosts" playbook.yml 2>&1 \
             | tee "$RUNNER_TEMP/ansible-playbook.log"
 
       - name: Mask secret values in the run log
         if: ${{ always() }}
         run: |
           [ -f "$RUNNER_TEMP/ansible-playbook.log" ] || exit 0
-          python3 - "$RUNNER_TEMP/ansible-playbook.log" <<'PY'
-          import os, sys
-          names = """ARTEMIS_DATABASE_PASSWORD ARTEMIS_INTERNAL_ADMIN_PASSWORD ARTEMIS_JHIPSTER_JWT IRIS_URL IRIS_SECRET
-          ATHENA_URL ATHENA_SECRET AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_DEPLOYMENT_NAME
-          LTI_OAUTH_SECRET SHARING_APIKEY""".split()
-          path = sys.argv[1]
-          with open(path, encoding="utf-8", errors="replace") as log:
+          python3 - "$RUNNER_TEMP/ansible-playbook.log" "$PACKAGE_DIR/metadata/env-references.json" <<'PY'
+          import json, os, sys
+          log_path, references_path = sys.argv[1], sys.argv[2]
+          with open(references_path, encoding="utf-8") as references:
+              names = {reference["envVar"] for reference in json.load(references) if reference.get("kind") == "secret"}
+          with open(log_path, encoding="utf-8", errors="replace") as log:
               text = log.read()
           for name in names:
               value = os.environ.get(name, "")
               if value:
                   text = text.replace(value, "***")
-          with open(path, "w", encoding="utf-8") as log:
+          with open(log_path, "w", encoding="utf-8") as log:
               log.write(text)
           PY
 
@@ -228,12 +201,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
-      - name: Recreate nginx after certificate regeneration
-        if: ${{ steps.certificate.outputs.regenerated == 'true' }}
-        run: ssh artemis-vm 'sudo /opt/artemis/artemis-docker.sh run up -d --force-recreate nginx'
-
       - name: Health gate
-        working-directory: ${{ steps.target.outputs.package_dir }}
+        working-directory: ${{ env.PACKAGE_DIR }}
         run: |
           profiles=$(jq -r '.technicalSelection.springProfileTokens | join(",")' metadata/package-manifest.json)
           case "$(jq -r '.database.type' metadata/package-manifest.json)" in
@@ -291,7 +260,7 @@ jobs:
 
           {
             echo "## Deployment healthy"
-            echo "- target: \`${{ steps.target.outputs.name }}\` at \`$GITHUB_SHA\`"
+            echo "- target: \`$TARGET\` at \`$GITHUB_SHA\`"
             echo "- profiles verified: \`$profiles\`"
             echo "- switched-off modules verified: \`${off_modules:-none}\`"
             echo "- database container: \`$database_container\`"
