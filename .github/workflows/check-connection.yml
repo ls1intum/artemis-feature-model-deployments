@@ -1,0 +1,63 @@
+name: Check connection
+
+# Checks that the runner reaches the VM of a target with the values of its GitHub Environment: SSH login, directly or
+# through the optional jump host, and passwordless sudo. In scan mode the host keys of the VM and the jump host are
+# accepted and reported, so an administrator can copy them into the SSH_KNOWN_HOSTS variable; strict mode checks
+# against that variable like a deploy.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Target name, equal to its GitHub Environment
+        type: string
+        required: true
+      mode:
+        description: scan reports the host keys; strict checks them against SSH_KNOWN_HOSTS
+        type: choice
+        options: [scan, strict]
+        default: scan
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Assemble SSH config
+        env:
+          GATEWAY_HOST: ${{ vars.DEPLOYMENT_GATEWAY_HOST }}
+          GATEWAY_PORT: ${{ vars.DEPLOYMENT_GATEWAY_PORT }}
+          GATEWAY_USER: ${{ vars.DEPLOYMENT_GATEWAY_USER }}
+          GATEWAY_SSH_KEY: ${{ secrets.DEPLOYMENT_GATEWAY_SSH_KEY }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USERNAME: ${{ vars.VM_USERNAME }}
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+          CHECK_MODE: ${{ inputs.mode }}
+        run: bash scripts/ssh-config.sh
+
+      - name: Login and sudo test
+        run: ssh artemis-vm 'hostname && whoami && sudo -n true && echo SUDO_OK'
+
+      - name: Report the host keys (scan mode)
+        if: ${{ !cancelled() && inputs.mode == 'scan' }}
+        run: |
+          {
+            echo '## Host keys'
+            echo 'Copy these lines into the `SSH_KNOWN_HOSTS` variable of the Environment after checking the fingerprints.'
+            echo '```'
+            grep -v '^#' ~/.ssh/known_hosts
+            echo '```'
+            echo 'Fingerprints:'
+            echo '```'
+            ssh-keygen -lf ~/.ssh/known_hosts
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
